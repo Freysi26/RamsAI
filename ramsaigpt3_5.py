@@ -1386,12 +1386,13 @@ The recipe should be practical to make at home with common ingredients.
 if __name__ == "__main__":
     generator = RecipeGenerator(
         embeddings_file='recipes_with_embeddings.pkl',
-        api_key='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'
+        api_key='API HERE'
     )
 
     result = generator.generate_new_recipe(
         theme=" tortilla with chicken and bananas",
         difficulty="medium",
+    
         cuisine="mexican"
     )
 

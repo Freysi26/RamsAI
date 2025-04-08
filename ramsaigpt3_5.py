@@ -167,10 +167,358 @@ from sklearn.preprocessing import StandardScaler
 # os.environ['OPENAI_API_KEY'] = "your-api-key"
 
 # Option 2: Pass directly to client (less secure)
-client = OpenAI(api_key="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")
+client = OpenAI(api_key="api key here")
 
 # PART 1: DATA PREPARATION FUNCTIONS
+First one is : from openai import OpenAI
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+import pandas as pd
 
+
+class RecipeGenerator:
+    def __init__(self, embeddings_file=None, df=None, api_key=None):
+        """
+        Initialize the RecipeGenerator with recipe data and embeddings.
+
+        Args:
+            embeddings_file: Path to pickle file with recipe data and embeddings
+            df: DataFrame with recipe data and embeddings (alternative to embeddings_file)
+            api_key: OpenAI API key
+        """
+        # Initialize OpenAI client
+        self.client = OpenAI(api_key=api_key or "API here")
+
+        # Load data
+        if df is not None:
+            self.df = df.dropna(subset=['embedding'])
+        elif embeddings_file is not None:
+            self.df = pd.read_pickle(embeddings_file).dropna(subset=['embedding'])
+        else:
+            raise ValueError("Either embeddings_file or df must be provided")
+
+        # Extract embeddings
+        self.embeddings = np.array(self.df['embedding'].tolist())
+        print(f"Recipe generator initialized with {len(self.df)} recipes")
+
+    def get_embedding(self, text, model="text-embedding-ada-002"):
+        """Generate embedding for a text query."""
+        if not text or not isinstance(text, str):
+            return None
+
+        text = text.replace("\n", " ").strip()[:8000]
+        if not text:
+            return None
+
+        try:
+            response = self.client.embeddings.create(
+                input=[text],
+                model=model
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            return None
+
+    def find_similar_recipes(self, query, n=4):
+        """
+        Find recipes similar to the query.
+
+        Args:
+            query: Text query to find similar recipes
+            n: Number of similar recipes to return
+
+        Returns:
+            DataFrame with similar recipes
+        """
+        query_embedding = self.get_embedding(query)
+        if query_embedding is None:
+            print("Error: Could not generate embedding for query")
+            return pd.DataFrame()
+
+        similarities = cosine_similarity([query_embedding], self.embeddings)[0]
+        top_indices = similarities.argsort()[-n:][::-1]
+
+        similar_recipes = self.df.iloc[top_indices].copy()
+        similar_recipes['similarity'] = similarities[top_indices]
+
+        print(f"Found {len(similar_recipes)} similar recipes for '{query}'")
+        return similar_recipes
+
+        
+    
+    def generate_new_recipe(self, theme, difficulty=None, cuisine=None, dietary=None):
+        """
+        Generate a new recipe based on theme and other parameters.
+
+        Args:
+            theme: Theme or main ingredient for the recipe
+            difficulty: Difficulty level (optional)
+            cuisine: Cuisine type (optional)
+            dietary: Dietary restrictions (optional)
+
+        Returns:
+            Generated recipe text
+        """
+        # Find similar recipes for context
+        similar_recipes = self.find_similar_recipes(theme)
+
+        if len(similar_recipes) == 0:
+            print("Warning: No similar recipes found for context")
+
+        # Build the prompt
+        prompt = f"""I want to create a new recipe with the following characteristics:
+Theme: {theme}
+Difficulty: {difficulty or 'Any'}
+Cuisine: {cuisine or 'Any'}
+Dietary: {dietary or 'None'}
+
+Here are some similar recipes for inspiration:
+"""
+
+        for i, (idx, recipe) in enumerate(similar_recipes.iterrows()):
+            prompt += f"\n--- Recipe {i+1} ---\n"
+            prompt += f"Name: {recipe.get('name', 'Unknown')}\n"
+
+            if 'description' in recipe:
+                prompt += f"Description: {recipe['description']}\n"
+
+            # Handle ingredients in different formats
+            if 'ingredients' in recipe:
+                ingredients = recipe['ingredients']
+                if isinstance(ingredients, str):
+                    try:
+                        ingredients_list = eval(ingredients)
+                        if isinstance(ingredients_list, list):
+                            prompt += f"Main Ingredients: {', '.join(ingredients_list[:5])}\n"
+                        else:
+                            prompt += f"Main Ingredients: {ingredients}\n"
+                    except:
+                        prompt += f"Main Ingredients: {ingredients}\n"
+                elif isinstance(ingredients, list):
+                    prompt += f"Main Ingredients: {', '.join(ingredients[:5])}\n"
+
+        prompt += """
+Please generate a completely new recipe that follows similar patterns but is original.
+Include:
+1. A creative recipe name
+2. A brief description
+3. Preparation and cooking times
+4. Number of servings
+5. Detailed ingredients list
+6. Step-by-step instructions
+7. Estimated nutritional information
+
+The recipe should be practical to make at home with common ingredients.
+"""
+
+        # Generate the recipe using OpenAI
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",  # You can use "gpt-4" for better results if available
+                messages=[
+                    {"role": "system", "content": "You are a professional chef who creates practical, delicious recipes."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=1000
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"Error generating recipe: {e}")
+            return f"Error generating recipe: {e}"
+
+      
+
+# Example usage
+if __name__ == "__main__":
+    # Example:
+     generator = RecipeGenerator(
+         embeddings_file='recipes_with_embeddings.pkl',
+         api_key='API key here'
+         )
+     new_recipe = generator.generate_new_recipe(
+         theme="pasta with meatballs and tomato sauce",
+         difficulty="Easy",
+         cuisine="Italian"First one is : from openai import OpenAI
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+import pandas as pd
+
+
+class RecipeGenerator:
+    def __init__(self, embeddings_file=None, df=None, api_key=None):
+        """
+        Initialize the RecipeGenerator with recipe data and embeddings.
+
+        Args:
+            embeddings_file: Path to pickle file with recipe data and embeddings
+            df: DataFrame with recipe data and embeddings (alternative to embeddings_file)
+            api_key: OpenAI API key
+        """
+        # Initialize OpenAI client
+        self.client = OpenAI(api_key=api_key or "API key here")
+
+        # Load data
+        if df is not None:
+            self.df = df.dropna(subset=['embedding'])
+        elif embeddings_file is not None:
+            self.df = pd.read_pickle(embeddings_file).dropna(subset=['embedding'])
+        else:
+            raise ValueError("Either embeddings_file or df must be provided")
+
+        # Extract embeddings
+        self.embeddings = np.array(self.df['embedding'].tolist())
+        print(f"Recipe generator initialized with {len(self.df)} recipes")
+
+    def get_embedding(self, text, model="text-embedding-ada-002"):
+        """Generate embedding for a text query."""
+        if not text or not isinstance(text, str):
+            return None
+
+        text = text.replace("\n", " ").strip()[:8000]
+        if not text:
+            return None
+
+        try:
+            response = self.client.embeddings.create(
+                input=[text],
+                model=model
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            return None
+
+    def find_similar_recipes(self, query, n=4):
+        """
+        Find recipes similar to the query.
+
+        Args:
+            query: Text query to find similar recipes
+            n: Number of similar recipes to return
+
+        Returns:
+            DataFrame with similar recipes
+        """
+        query_embedding = self.get_embedding(query)
+        if query_embedding is None:
+            print("Error: Could not generate embedding for query")
+            return pd.DataFrame()
+
+        similarities = cosine_similarity([query_embedding], self.embeddings)[0]
+        top_indices = similarities.argsort()[-n:][::-1]
+
+        similar_recipes = self.df.iloc[top_indices].copy()
+        similar_recipes['similarity'] = similarities[top_indices]
+
+        print(f"Found {len(similar_recipes)} similar recipes for '{query}'")
+        return similar_recipes
+
+        
+    
+    def generate_new_recipe(self, theme, difficulty=None, cuisine=None, dietary=None):
+        """
+        Generate a new recipe based on theme and other parameters.
+
+        Args:
+            theme: Theme or main ingredient for the recipe
+            difficulty: Difficulty level (optional)
+            cuisine: Cuisine type (optional)
+            dietary: Dietary restrictions (optional)
+
+        Returns:
+            Generated recipe text
+        """
+        # Find similar recipes for context
+        similar_recipes = self.find_similar_recipes(theme)
+
+        if len(similar_recipes) == 0:
+            print("Warning: No similar recipes found for context")
+
+        # Build the prompt
+        prompt = f"""I want to create a new recipe with the following characteristics:
+Theme: {theme}
+Difficulty: {difficulty or 'Any'}
+Cuisine: {cuisine or 'Any'}
+Dietary: {dietary or 'None'}
+
+Here are some similar recipes for inspiration:
+"""
+
+        for i, (idx, recipe) in enumerate(similar_recipes.iterrows()):
+            prompt += f"\n--- Recipe {i+1} ---\n"
+            prompt += f"Name: {recipe.get('name', 'Unknown')}\n"
+
+            if 'description' in recipe:
+                prompt += f"Description: {recipe['description']}\n"
+
+            # Handle ingredients in different formats
+            if 'ingredients' in recipe:
+                ingredients = recipe['ingredients']
+                if isinstance(ingredients, str):
+                    try:
+                        ingredients_list = eval(ingredients)
+                        if isinstance(ingredients_list, list):
+                            prompt += f"Main Ingredients: {', '.join(ingredients_list[:5])}\n"
+                        else:
+                            prompt += f"Main Ingredients: {ingredients}\n"
+                    except:
+                        prompt += f"Main Ingredients: {ingredients}\n"
+                elif isinstance(ingredients, list):
+                    prompt += f"Main Ingredients: {', '.join(ingredients[:5])}\n"
+
+        prompt += """
+Please generate a completely new recipe that follows similar patterns but is original.
+Include:
+1. A creative recipe name
+2. A brief description
+3. Preparation and cooking times
+4. Number of servings
+5. Detailed ingredients list
+6. Step-by-step instructions
+7. Estimated nutritional information
+
+The recipe should be practical to make at home with common ingredients.
+"""
+
+        # Generate the recipe using OpenAI
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",  # You can use "gpt-4" for better results if available
+                messages=[
+                    {"role": "system", "content": "You are a professional chef who creates practical, delicious recipes."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=1000
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"Error generating recipe: {e}")
+            return f"Error generating recipe: {e}"
+
+      
+
+# Example usage
+if __name__ == "__main__":
+    # Example:
+     generator = RecipeGenerator(
+         embeddings_file='recipes_with_embeddings.pkl',
+         api_key='API key here'
+         )
+     new_recipe = generator.generate_new_recipe(
+         theme="pasta with meatballs and tomato sauce",
+         difficulty="Easy",
+         cuisine="Italian"
+     )
+     print(new_recipe)
+
+     print("Recipe generator loaded. Import and use the class as needed.")
+     )
+     print(new_recipe)
+
+     print("Recipe generator loaded. Import and use the class as needed.")
 def create_recipe_text(row):
     """
     Create a text representation of a recipe from structured data.
@@ -660,7 +1008,7 @@ def search_recipes_by_query(embeddings_file, query_text, top_n=5, client=None):
 
     # Create OpenAI client if not provided
     if client is None:
-        client = OpenAI(api_key="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")
+        client = OpenAI(api_key="APi key here")
 
     # Generate embedding for the query
     try:
@@ -726,7 +1074,7 @@ class RecipeGenerator:
             api_key: OpenAI API key
         """
         # Initialize OpenAI client
-        self.client = OpenAI(api_key=api_key or "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")
+        self.client = OpenAI(api_key=api_key or "API key here")
 
         # Load data
         if df is not None:
@@ -874,7 +1222,7 @@ if __name__ == "__main__":
     # Example:
      generator = RecipeGenerator(
          embeddings_file='recipes_with_embeddings.pkl',
-         api_key='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'
+         api_key='API here'
          )
      new_recipe = generator.generate_new_recipe(
          theme="pasta with meatballs and tomato sauce",
